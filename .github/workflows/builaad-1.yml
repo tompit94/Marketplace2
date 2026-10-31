@@ -1,0 +1,365 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Créer le projet
+        run: |
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "MarketplaceApp"
+          include(":app")
+          EOF
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
+          mkdir -p app
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "be.thomas.marketplace"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "be.thomas.marketplace"
+                  minSdk = 26
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      // Signe la release avec la clé debug : pratique pour un usage perso (sideload).
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+              }
+
+              buildFeatures {
+                  buildConfig = true
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.activity:activity-ktx:1.9.3")
+          }
+          EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">Marketplace</string>
+          </resources>
+          EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+                  <item name="android:statusBarColor">#FFFFFF</item>
+                  <item name="android:windowLightStatusBar">true</item>
+              </style>
+              <color name="ic_launcher_background">#1877F2</color>
+          </resources>
+          EOF
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <!-- Icône simple : une boutique stylisée (store) blanche sur fond bleu. -->
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <!-- Auvent -->
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M34,38 L74,38 L78,50 C78,54 74,56 71,56 C68,56 66,54 65,52 C64,54 62,56 59,56 C56,56 54,54 54,52 C54,54 52,56 49,56 C46,56 44,54 43,52 C42,54 40,56 37,56 C34,56 30,54 30,50 Z" />
+              <!-- Boutique -->
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M34,59 L74,59 L74,72 L60,72 L60,63 L48,63 L48,72 L34,72 Z" />
+          </vector>
+          EOF
+          mkdir -p app/src/main/java/be/thomas/marketplace
+          cat > app/src/main/java/be/thomas/marketplace/MainActivity.kt <<'EOF'
+          package be.thomas.marketplace
+
+          import android.annotation.SuppressLint
+          import android.content.ActivityNotFoundException
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.widget.Toast
+          import android.webkit.CookieManager
+          import android.webkit.ValueCallback
+          import android.webkit.WebChromeClient
+          import android.webkit.WebResourceRequest
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import androidx.activity.ComponentActivity
+          import androidx.activity.OnBackPressedCallback
+          import androidx.activity.result.contract.ActivityResultContracts
+
+          class MainActivity : ComponentActivity() {
+
+              companion object {
+                  const val HOME = "https://www.facebook.com/marketplace/"
+
+                  /**
+                   * Parties de Facebook bloquées (renvoient au Marketplace). Le fil d'actu "/" est
+                   * toujours bloqué. Tout le reste (recherche, connexion, messages…) est autorisé.
+                   * Quand une page est bloquée, un message « Bloqué : /chemin » s'affiche.
+                   */
+                  val BLOCKED_PREFIXES = listOf(
+                      "/home.php", "/watch", "/reel", "/reels", "/stories", "/groups", "/friends",
+                      "/notifications", "/gaming", "/bookmarks", "/menu", "/events", "/pages",
+                      "/feeds", "/memories", "/saved", "/fundraisers", "/jobs", "/dating",
+                  )
+
+                  /**
+                   * CSS injecté dans chaque page pour masquer des éléments de Facebook.
+                   * Les classes de Facebook sont obfusquées et changent souvent : ajoute ici tes
+                   * propres sélecteurs (voir README, section « Masquer des éléments »).
+                   */
+                  const val CUSTOM_CSS = """
+                      /* Exemples à activer/ajuster :
+                      div[role="banner"] { display: none !important; }
+                      */
+                  """
+              }
+
+              private lateinit var webView: WebView
+              private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+              private val pickFiles =
+                  registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+                      fileCallback?.onReceiveValue(
+                          WebChromeClient.FileChooserParams.parseResult(res.resultCode, res.data)
+                      )
+                      fileCallback = null
+                  }
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+
+                  webView = WebView(this)
+                  setContentView(webView)
+
+                  webView.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true
+                      // Retire le marqueur "wv" : Facebook traite mieux un navigateur Chrome standard.
+                      userAgentString = userAgentString.replace("; wv", "")
+                  }
+                  CookieManager.getInstance().apply {
+                      setAcceptCookie(true)
+                      setAcceptThirdPartyCookies(webView, true)
+                  }
+
+                  webView.webViewClient = object : WebViewClient() {
+                      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                          if (!request.isForMainFrame) return false
+                          return handleNavigation(request.url)
+                      }
+
+                      // Facebook est une app « single page » : beaucoup de navigations passent par
+                      // history.pushState et n'appellent pas shouldOverrideUrlLoading. On les rattrape ici.
+                      override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                          super.doUpdateVisitedHistory(view, url, isReload)
+                          val uri = url?.let(Uri::parse) ?: return
+                          if (isFacebook(uri) && !isAllowed(uri)) block(uri)
+                          injectCss(view)
+                      }
+
+                      override fun onPageFinished(view: WebView, url: String?) {
+                          super.onPageFinished(view, url)
+                          injectCss(view)
+                      }
+                  }
+
+                  webView.webChromeClient = object : WebChromeClient() {
+                      // Permet d'ajouter des photos quand tu publies une annonce.
+                      override fun onShowFileChooser(
+                          view: WebView,
+                          callback: ValueCallback<Array<Uri>>,
+                          params: FileChooserParams,
+                      ): Boolean {
+                          fileCallback?.onReceiveValue(null)
+                          fileCallback = callback
+                          return try {
+                              pickFiles.launch(params.createIntent())
+                              true
+                          } catch (e: ActivityNotFoundException) {
+                              fileCallback = null
+                              false
+                          }
+                      }
+                  }
+
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() {
+                          if (webView.canGoBack()) webView.goBack() else finish()
+                      }
+                  })
+
+                  if (savedInstanceState != null) webView.restoreState(savedInstanceState)
+                  else webView.loadUrl(HOME)
+              }
+
+              /** true = on bloque/gère nous-mêmes, false = le WebView charge normalement. */
+              private fun handleNavigation(uri: Uri): Boolean {
+                  val host = uri.host.orEmpty()
+                  return when {
+                      // Liens sortants de Facebook (l.facebook.com/l.php?u=...) → navigateur externe
+                      host == "l.facebook.com" || host == "lm.facebook.com" -> {
+                          openExternal(uri.getQueryParameter("u")?.let(Uri::parse) ?: uri); true
+                      }
+                      isFacebook(uri) && isAllowed(uri) -> false
+                      isFacebook(uri) -> { block(uri); true }
+                      uri.scheme == "http" || uri.scheme == "https" -> { openExternal(uri); true }
+                      else -> true // intent:, fb:// … ignorés (évite d'ouvrir l'app Facebook)
+                  }
+              }
+
+              private fun isFacebook(uri: Uri): Boolean {
+                  val host = uri.host.orEmpty()
+                  return host == "facebook.com" || host.endsWith(".facebook.com")
+              }
+
+              private fun isAllowed(uri: Uri): Boolean {
+                  val path = uri.path.orEmpty()
+                  if (path == "" || path == "/") return false // fil d'actualité
+                  return BLOCKED_PREFIXES.none { path.startsWith(it) }
+              }
+
+              private fun block(uri: Uri) {
+                  Toast.makeText(this, "Bloqué : ${uri.path}", Toast.LENGTH_SHORT).show()
+                  webView.loadUrl(HOME)
+              }
+
+              private fun openExternal(uri: Uri) {
+                  try {
+                      startActivity(Intent(Intent.ACTION_VIEW, uri))
+                  } catch (e: ActivityNotFoundException) {
+                      // aucun navigateur installé : on ignore
+                  }
+              }
+
+              private fun injectCss(view: WebView) {
+                  val css = CUSTOM_CSS.replace("\\", "\\\\").replace("`", "\\`")
+                  view.evaluateJavascript(
+                      """
+                      (function() {
+                        var s = document.getElementById('mp-only-css');
+                        if (!s) { s = document.createElement('style'); s.id = 'mp-only-css';
+                                  (document.head || document.documentElement).appendChild(s); }
+                        s.textContent = `$css`;
+                      })();
+                      """.trimIndent(),
+                      null
+                  )
+              }
+
+              override fun onSaveInstanceState(outState: Bundle) {
+                  super.onSaveInstanceState(outState)
+                  webView.saveState(outState)
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  CookieManager.getInstance().flush() // garde la session Facebook
+                  webView.onPause()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  webView.onResume()
+              }
+          }
+          EOF
+      - run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Marketplace-apk
+          path: app/build/outputs/apk/debug/*.apk
