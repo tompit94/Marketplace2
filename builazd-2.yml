@@ -1,0 +1,430 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Créer le projet
+        run: |
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "MarketplaceApp"
+          include(":app")
+          EOF
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.7.3" apply false
+              id("org.jetbrains.kotlin.android") version "2.0.21" apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
+          mkdir -p app
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "be.thomas.marketplace"
+              compileSdk = 35
+
+              defaultConfig {
+                  applicationId = "be.thomas.marketplace"
+                  minSdk = 26
+                  targetSdk = 35
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              // Clé de signature fixe : les mises à jour s'installent par-dessus sans perdre la connexion.
+              signingConfigs {
+                  getByName("debug") {
+                      storeFile = file("debug.keystore")
+                      storePassword = "android"
+                      keyAlias = "androiddebugkey"
+                      keyPassword = "android"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      // Signe la release avec la clé debug : pratique pour un usage perso (sideload).
+                      signingConfig = signingConfigs.getByName("debug")
+                  }
+              }
+
+              buildFeatures {
+                  buildConfig = true
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.activity:activity-ktx:1.9.3")
+          }
+          EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="@string/app_name"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">Marketplace</string>
+          </resources>
+          EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
+                  <item name="android:statusBarColor">#FFFFFF</item>
+                  <item name="android:windowLightStatusBar">true</item>
+              </style>
+              <color name="ic_launcher_background">#1877F2</color>
+          </resources>
+          EOF
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+          mkdir -p app/src/main/res/drawable
+          cat > app/src/main/res/drawable/ic_launcher_foreground.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <!-- Icône simple : une boutique stylisée (store) blanche sur fond bleu. -->
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <!-- Auvent -->
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M34,38 L74,38 L78,50 C78,54 74,56 71,56 C68,56 66,54 65,52 C64,54 62,56 59,56 C56,56 54,54 54,52 C54,54 52,56 49,56 C46,56 44,54 43,52 C42,54 40,56 37,56 C34,56 30,54 30,50 Z" />
+              <!-- Boutique -->
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M34,59 L74,59 L74,72 L60,72 L60,63 L48,63 L48,72 L34,72 Z" />
+          </vector>
+          EOF
+          mkdir -p app/src/main/java/be/thomas/marketplace
+          cat > app/src/main/java/be/thomas/marketplace/MainActivity.kt <<'EOF'
+          package be.thomas.marketplace
+
+          import android.annotation.SuppressLint
+          import android.content.ActivityNotFoundException
+          import android.content.Intent
+          import android.net.Uri
+          import android.os.Bundle
+          import android.widget.Toast
+          import android.webkit.CookieManager
+          import android.webkit.ValueCallback
+          import android.webkit.WebChromeClient
+          import android.webkit.WebResourceRequest
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import androidx.activity.ComponentActivity
+          import androidx.activity.OnBackPressedCallback
+          import androidx.activity.result.contract.ActivityResultContracts
+
+          class MainActivity : ComponentActivity() {
+
+              companion object {
+                  const val HOME = "https://www.facebook.com/marketplace/"
+
+                  /**
+                   * Parties de Facebook bloquées (renvoient au Marketplace). Le fil d'actu "/" est
+                   * toujours bloqué. Tout le reste (recherche, connexion, messages…) est autorisé.
+                   * Quand une page est bloquée, un message « Bloqué : /chemin » s'affiche.
+                   */
+                  val BLOCKED_PREFIXES = listOf(
+                      "/home.php", "/watch", "/reel", "/reels", "/stories", "/groups", "/friends",
+                      "/notifications", "/gaming", "/bookmarks", "/menu", "/events", "/pages",
+                      "/feeds", "/memories", "/saved", "/fundraisers", "/jobs", "/dating",
+                  )
+
+                  /**
+                   * CSS injecté dans chaque page pour masquer des éléments de Facebook.
+                   * Les classes de Facebook sont obfusquées et changent souvent : ajoute ici tes
+                   * propres sélecteurs (voir README, section « Masquer des éléments »).
+                   */
+                  const val CUSTOM_CSS = """
+                      /* Exemples à activer/ajuster :
+                      div[role="banner"] { display: none !important; }
+                      */
+                  """
+              }
+
+              private lateinit var webView: WebView
+              private var fileCallback: ValueCallback<Array<Uri>>? = null
+
+              private val pickFiles =
+                  registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+                      fileCallback?.onReceiveValue(
+                          WebChromeClient.FileChooserParams.parseResult(res.resultCode, res.data)
+                      )
+                      fileCallback = null
+                  }
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+
+                  webView = WebView(this)
+                  setContentView(webView)
+
+                  webView.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true
+                      // Retire le marqueur "wv" : Facebook traite mieux un navigateur Chrome standard.
+                      userAgentString = userAgentString.replace("; wv", "")
+                  }
+                  CookieManager.getInstance().apply {
+                      setAcceptCookie(true)
+                      setAcceptThirdPartyCookies(webView, true)
+                  }
+
+                  webView.webViewClient = object : WebViewClient() {
+                      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                          if (!request.isForMainFrame) return false
+                          return handleNavigation(request.url)
+                      }
+
+                      // Facebook est une app « single page » : beaucoup de navigations passent par
+                      // history.pushState et n'appellent pas shouldOverrideUrlLoading. On les rattrape ici.
+                      override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                          super.doUpdateVisitedHistory(view, url, isReload)
+                          val uri = url?.let(Uri::parse) ?: return
+                          if (isFacebook(uri) && !isAllowed(uri)) block(uri)
+                          injectCss(view)
+                      }
+
+                      override fun onPageFinished(view: WebView, url: String?) {
+                          super.onPageFinished(view, url)
+                          injectCss(view)
+                      }
+                  }
+
+                  webView.webChromeClient = object : WebChromeClient() {
+                      // Permet d'ajouter des photos quand tu publies une annonce.
+                      override fun onShowFileChooser(
+                          view: WebView,
+                          callback: ValueCallback<Array<Uri>>,
+                          params: FileChooserParams,
+                      ): Boolean {
+                          fileCallback?.onReceiveValue(null)
+                          fileCallback = callback
+                          return try {
+                              pickFiles.launch(params.createIntent())
+                              true
+                          } catch (e: ActivityNotFoundException) {
+                              fileCallback = null
+                              false
+                          }
+                      }
+                  }
+
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() {
+                          if (webView.canGoBack()) webView.goBack() else finish()
+                      }
+                  })
+
+                  if (savedInstanceState != null) webView.restoreState(savedInstanceState)
+                  else webView.loadUrl(HOME)
+              }
+
+              /** true = on bloque/gère nous-mêmes, false = le WebView charge normalement. */
+              private fun handleNavigation(uri: Uri): Boolean {
+                  val host = uri.host.orEmpty()
+                  return when {
+                      // Liens sortants de Facebook (l.facebook.com/l.php?u=...) → navigateur externe
+                      host == "l.facebook.com" || host == "lm.facebook.com" -> {
+                          openExternal(uri.getQueryParameter("u")?.let(Uri::parse) ?: uri); true
+                      }
+                      isFacebook(uri) && isAllowed(uri) -> false
+                      isFacebook(uri) -> { block(uri); true }
+                      uri.scheme == "http" || uri.scheme == "https" -> { openExternal(uri); true }
+                      else -> true // intent:, fb:// … ignorés (évite d'ouvrir l'app Facebook)
+                  }
+              }
+
+              private fun isFacebook(uri: Uri): Boolean {
+                  val host = uri.host.orEmpty()
+                  return host == "facebook.com" || host.endsWith(".facebook.com")
+              }
+
+              private fun isAllowed(uri: Uri): Boolean {
+                  // Pas encore connecté : on laisse tout passer pour que la connexion fonctionne.
+                  if (!isLoggedIn()) return true
+                  val path = uri.path.orEmpty()
+                  if (path == "" || path == "/") return false // fil d'actualité
+                  return BLOCKED_PREFIXES.none { path.startsWith(it) }
+              }
+
+              private fun isLoggedIn(): Boolean =
+                  CookieManager.getInstance().getCookie("https://www.facebook.com")
+                      ?.contains("c_user=") == true
+
+              private fun block(uri: Uri) {
+                  Toast.makeText(this, "Bloqué : ${uri.path}", Toast.LENGTH_SHORT).show()
+                  webView.loadUrl(HOME)
+              }
+
+              private fun openExternal(uri: Uri) {
+                  try {
+                      startActivity(Intent(Intent.ACTION_VIEW, uri))
+                  } catch (e: ActivityNotFoundException) {
+                      // aucun navigateur installé : on ignore
+                  }
+              }
+
+              private fun injectCss(view: WebView) {
+                  val css = CUSTOM_CSS.replace("\\", "\\\\").replace("`", "\\`")
+                  view.evaluateJavascript(
+                      """
+                      (function() {
+                        var s = document.getElementById('mp-only-css');
+                        if (!s) { s = document.createElement('style'); s.id = 'mp-only-css';
+                                  (document.head || document.documentElement).appendChild(s); }
+                        s.textContent = `$css`;
+                      })();
+                      """.trimIndent(),
+                      null
+                  )
+              }
+
+              override fun onSaveInstanceState(outState: Bundle) {
+                  super.onSaveInstanceState(outState)
+                  webView.saveState(outState)
+              }
+
+              override fun onPause() {
+                  super.onPause()
+                  CookieManager.getInstance().flush() // garde la session Facebook
+                  webView.onPause()
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  webView.onResume()
+              }
+          }
+          EOF
+          base64 -d > app/debug.keystore <<'EOF'
+          MIIKZgIBAzCCChAGCSqGSIb3DQEHAaCCCgEEggn9MIIJ+TCCBcAGCSqGSIb3DQEHAaCCBbEEggWt
+          MIIFqTCCBaUGCyqGSIb3DQEMCgECoIIFQDCCBTwwZgYJKoZIhvcNAQUNMFkwOAYJKoZIhvcNAQUM
+          MCsEFJAyIl8spIFO774Vbj4uwytgMY6xAgInEAIBIDAMBggqhkiG9w0CCQUAMB0GCWCGSAFlAwQB
+          KgQQqSte67ZKSMOzkjFuoktKSQSCBNAS9iNBWxFlx9du7N/hRkpZkuQmTapQnhrmZooCeIaHSkc1
+          VPcmFLA22IyGxrZ5my/63YqFwmsVfZlGRxvj+vL6/mMbh6xZdvmlWK8en5fin7NUIZ5j7ABh0dkq
+          f6ockmsC1km+j1UHEAOT6a+OZgVX21sKDpbd0TFBVdFXiCP6F8bh9ZNCUEudE2MLsbuN946NUcwd
+          YUDJrv8Do2fDPopqcbxz+36Jn5xZwJ5AgVvuuCLdsp0Nwur4SzG35H0We9GNFvwz/caROw49lMpQ
+          GhA/FmFIyovVV6Z6McbrynGm1UDke5Fq0P8qDcpoj4qBDSJWlFQdY/U/I7zviTtXu/x/1LD+PGBU
+          1L8HBw4xfcr7I2nYN5JnOg5FniKnHddCcIQ4JdRQf7Nb0CkEA0RmRgj+yEOz8I0k/7Q3D5bjmALA
+          n0lITMPF4bzbk6N3UDt0Gho5ZarJbzHoGtI+DCZI9rdFGxcQk24Ttrxf+8lQqU//iiwOTkgLABLt
+          xmzMbQR0DBOyoqxFeIw+Or+PRjWNveVE8v94yri7nqLWTZFTBjqRXkc3VGR+ZJs35qYy58EfMboO
+          uv6YteJ+AS090Qb5L6/XwcsEac4LdMLsuyekUzoy4dvuhiVaKlMQzAO5DeMnx6l6uVjIHyzdAQ8d
+          Ae+aViyZfCOIxya0TWQl11Vz5KPD5ni5+m9pK+wcBJf+S0CbTQKtv1/JVYk0VYLtKhk6BBOqfCef
+          exseAXKGhVFuTGz7e+QMr5+2p44ozYTO9c1fwytg4F8rBQxilOPr+sfuxgCeH8jR36Tbrt1UN58D
+          diGr8Z05tfQLGoKtuvPCT0aQ7MEwFyN0W+GiLs07OtEEtD4MrMzA3UjMgXibRT9wjtwDMYotuH/C
+          B9jJRIfNH+rAeceP1GjVp8+togycrpcgQ13vH41hSp+ClxNpJ21yR9tBBqgbW+r47DEoCBDtL7iz
+          xeokz4YCgo5A0XHwgcBq40TGCsA8xPcPXOyJHzOoi8oST4eFJMdHATLhWufTQZa2DCMdc6cXf7cD
+          FCaTryNdx2IA1R/fTIgJkMcp8mvhN8mKgePYx9U1QnVS8e7k+sYx68sRhkA+duiP0q2DuXrvWjYn
+          WtDAptY1p2X+Hg5BPR2XItb45ZTv7AnXS7xLWmanca6hVya2cqEWy8dhmv0FrCz1RDq3Hht8F7ux
+          5Nv4EEfwASCYIUdBZcVTOwUA0wsghiRE+RxnF3APGlPFJIHMwTeNO+gV5ECaeTINbLsShL9sRuQ2
+          i+sO4cM3O2a+0dA98vAVuTDJrIP1F1lfN30aCcifKcAhLNkw7YqTAbBwn/XUssbbmiKB6Ltq8NdE
+          2asRHRQ3vfJ/lwuYGCaGfdtZNXNU4fADL60dqercMe2pwufTI1FPycYUPZDkXgAqP+sQVnD9z1rB
+          GvRVpiTx/4j65rpDdX0zAmgz5z8ew1H3NOpPumpYiQmwRC7TBeStuH3CNmwS74W9shbmKpNwzveb
+          XiKJeJHwiOam+PtYzFVm2omwW6FMojGFlrCIFJj4rvlV682hjYm+jnx6P14wNT2whLOR2Bsym5DT
+          SqWWA00t+wKvb43NxF6z3W4WLWKikCPTRbNqkMqS2YUkIQxdBFrx9Hb49+8kFjS+HWBLSDWPKM25
+          lTFSMC0GCSqGSIb3DQEJFDEgHh4AYQBuAGQAcgBvAGkAZABkAGUAYgB1AGcAawBlAHkwIQYJKoZI
+          hvcNAQkVMRQEElRpbWUgMTc5MzQ4ODYyNTc3NzCCBDEGCSqGSIb3DQEHBqCCBCIwggQeAgEAMIIE
+          FwYJKoZIhvcNAQcBMGYGCSqGSIb3DQEFDTBZMDgGCSqGSIb3DQEFDDArBBQ6pRrO3Gtj1vCSu+Ti
+          F98iZrnL0AICJxACASAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEL83wfV8u/6eNUWPX/JJ
+          8IOAggOgYqUrlz/QgnAHKvjScDwKt5oFCJz2Rw4bGZeZ+oQnjj6lt48zYIhwF/PH6zbexEnnKI4l
+          ktvTlQ7XKJ12KpS5ywLylk46kMgX2k/tOV6HgGpzPH6OAXVoTY7920ctI8AmlBqZ0+1AX9bywpnH
+          V4a+iZ4YYFJs3BIuZ6vbfR3uu5jkRSfxR12yR7kggzMq7DYuD7tswl24jTjTnDj4PfIsg43x1YwK
+          x821RdlrHCu35sLi/n6ikXmKY/01K1Me9hv9iXDdejq/vnLkTo5qwDju21IdBB33s+Y8QI9MF+yB
+          k5K206a6CCcD3pUaCAPct1wpee+QhZX0NkAHCR+alVxBA6ZVWmt/0GByrJCiY3vxFilaOrJkb/Ba
+          HXXAdsIXMzcVlEf9liUd9ciVWGsPJeeJLI1JtFf2gVeD6Zjn0IA/w4JKWsGTX4WAcX89iR1tEf5M
+          q+pkjs40W5DNM18pPP5XuI2M/ALnXt/hou2jb73kJrJx/31JtonRdYCNifGWtQJk54TbfN87NOwj
+          TmLuY1KtL/8anqmR4gSFovV84s8dxCkFTiTPqAhfIt8BKVdeJwUNQObhGepOxXtGbt52/2MDmOGD
+          KGZtEBxRXJ14js3uhjn2ZkvxkThY68sGN6ZxWgyyQemvxt69VDQCEinXTMfmKdR7a50rYvXkz8p7
+          FStcQSrz4BHdXLyGbDSLbuhlfdPurbVm4qVz/3eTLz0meUkXd5PyhW/wv+i8lLiLl/s8QcOZ/QsF
+          QQRsAkmssd/EFR1oYGca+zDG5U+ltcSMVIYA+3V5gdMOibTwobljDJlzGV1p5wzdhGDxaqzoud2d
+          EoKlXmNWxVAzTePkTBQ3BZ99mpyVzZNCEwZI67Qo7/MgauG92rX8fNvHDOkZwUS5I0Xdztf5hX0/
+          ZtgcD7CTIbi2c7ZLMocDmyYTKZymYjIF+fhsmpyIz0LRBX87JGAbwql44kgop+3o9fSYrJRVkATc
+          TJ32ZDycY6khFbcVq4sCNfYFnMuR3brMWIwOG7TAV8YTwexwAg5qDVhbt74M3hABAOQuDPEOiTv/
+          1PiGWPr+eifS805Yo3vsMX9QDyOCwUMQAoHXYc+H6MIO2cJoCxh7uwT9gpSQu2DXc5RT4Yp2intQ
+          APAWbNENPMCeY4li8O4zHLWMFy7R/NRg91YY59Un60Hev/D7PqIEEs4Wtou8khSlCGJ2kz5yUy87
+          Q34R46QiyuIRs3D8r7JPqKlO91hkUjBNMDEwDQYJYIZIAWUDBAIBBQAEIJR6zQBWCPAkSl6hjk1n
+          PqtHQnYWRzGiEUC98YmWrEFyBBThYX07oqW/lhLnAsPxbPPJ5CAc5AICJxA=
+          EOF
+      - run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Marketplace-apk
+          path: app/build/outputs/apk/debug/*.apk
